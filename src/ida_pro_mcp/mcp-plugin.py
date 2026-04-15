@@ -13,7 +13,8 @@ import struct
 import threading
 import http.server
 from urllib.parse import urlparse
-from typing import Any, Callable, get_type_hints, TypedDict, Optional, Annotated, TypeVar, Generic, NotRequired
+from typing import Any, Callable, get_type_hints, Optional, Annotated, TypeVar, Generic, Union
+from typing_extensions import TypedDict, NotRequired
 import re
 import time
 import tempfile
@@ -93,6 +94,17 @@ class RPCRegistry:
             raise JSONRPCError(-32600, "请求参数必须为数组或对象")
 
 rpc_registry = RPCRegistry()
+
+# 这两个基础接口定义在文件最前面，但完整的 IDA 线程装饰器
+# 会在后文才初始化。这里先提供一个最小可用版本，确保模块在
+# headless/idalib 模式下可以顺利导入；后文会重新定义真正的
+# idaread/idawrite 装饰器，供其余 IDA API 函数使用。
+def jsonrpc(func: Callable) -> Callable:
+    return rpc_registry.register(func)
+
+
+def idaread(func: Callable) -> Callable:
+    return func
 
 @jsonrpc
 @idaread

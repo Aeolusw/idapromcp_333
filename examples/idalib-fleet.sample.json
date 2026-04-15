@@ -1,0 +1,19 @@
+{
+  "python_exe": "D:\\Tools\\Python311\\python.exe",
+  "ida_dir": "E:\\CS\\Tools\\IDA Pro 9.1",
+  "transport": "streamable-http",
+  "instances": [
+    {
+      "alias": "15083758libsec2026_runtime.so",
+      "input_path": "D:\\0Document\\pgm\\Android\\ACE\\ACE2026-Pre\\question\\26-prelim\\output\\20260415083758\\libsec2026_runtime.so",
+      "port": 8746,
+      "enabled": true
+    },
+    {
+      "alias": "13165417libsec2026_runtime.so",
+      "input_path": "D:\\0Document\\pgm\\Android\\ACE\\ACE2026-Pre\\question\\26-prelim\\output\\20260413165154\\20260413165417\\libsec2026_runtime.so",
+      "port": 8747,
+      "enabled": true
+    }
+  ]
+}

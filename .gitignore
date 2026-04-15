@@ -41,6 +41,7 @@ pids
 *.pid
 *.seed
 *.pid.lock
+.idalib-fleet/
 
 # Coverage directory
 coverage/

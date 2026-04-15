@@ -278,18 +278,14 @@ for function in visitor.functions.values():
     code += ast.unparse(function)
     code += "\n\n"
 
-print("Code generation complete. Writing to file...")
+# Wheels are commonly installed into a non-writable site-packages directory.
+# The generated module is useful for debugging, but server startup must not depend
+# on being able to write next to the installed package.
 try:
     with open(GENERATED_PY, "w", encoding="utf-8") as f:
         f.write(code)
-    print(f"Successfully wrote to {GENERATED_PY}")
-except Exception as e:
-    print(f"Failed to write file: {e}")
-    raise
-
-print("Compiling and executing...")
-with open(GENERATED_PY, "w", encoding="utf-8") as f:
-    f.write(code)
+except OSError:
+    pass
 exec(compile(code, GENERATED_PY, "exec"))
 
 # 所有可用的 MCP 函数列表 - 确保包含标准MCP协议接口

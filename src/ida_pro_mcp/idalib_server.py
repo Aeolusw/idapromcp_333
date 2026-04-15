@@ -6,15 +6,10 @@ import importlib
 import os
 import json
 from pathlib import Path
+from urllib.parse import urlparse
 import typing_inspection.introspection as intro
 
 from mcp.server.fastmcp import FastMCP
-
-# idapro must go first to initialize idalib
-import idapro
-
-import ida_auto
-import ida_hexrays
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +51,7 @@ def load_config():
     """
     default_config = {
         "host": "127.0.0.1",
-        "port": 8745,  # idalib服务器默认端口为8745
+        "port": 8746,
     }
 
     def _pick_port(value):
@@ -193,12 +188,29 @@ def fixup_tool_argument_descriptions(mcp: FastMCP):
             logger.debug("adding parameter documentation %s(%s='%s')", tool.name, name, description)
             tool.parameters["properties"][name]["description"] = description
 
+
+def resolve_transport(transport: str, host: str, port: int) -> tuple[str, str, int]:
+    if transport in {"stdio", "sse", "streamable-http"}:
+        return transport, host, port
+
+    url = urlparse(transport)
+    if url.scheme not in {"http", "https"} or url.hostname is None or url.port is None:
+        raise ValueError(f"无效的传输配置: {transport}")
+
+    return "streamable-http", url.hostname, url.port
+
 def main():
     # 先加载配置文件，作为命令行参数的默认值
     config = load_config()
     
     parser = argparse.ArgumentParser(description="MCP server for IDA Pro via idalib")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show debug messages")
+    parser.add_argument(
+        "--transport",
+        type=str,
+        default="streamable-http",
+        help="MCP transport protocol (stdio, sse, streamable-http, or http://127.0.0.1:8746)",
+    )
     parser.add_argument("--host", type=str, default=config["host"], help=f"Host to listen on, default: {config['host']}")
     parser.add_argument("--port", type=int, default=config["port"], help=f"Port to listen on, default: {config['port']}")
     parser.add_argument("input_path", type=Path, help="Path to the input file to analyze.")
@@ -206,15 +218,31 @@ def main():
 
     if args.verbose:
         log_level = logging.DEBUG 
-        idapro.enable_console_messages(True)
     else:
         log_level = logging.INFO
-        idapro.enable_console_messages(False)
+
+    transport, host, port = resolve_transport(args.transport, args.host, args.port)
 
     mcp.settings.log_level = logging.getLevelName(log_level)
-    mcp.settings.host = args.host
-    mcp.settings.port = args.port
+    mcp.settings.host = host
+    mcp.settings.port = port
     logging.basicConfig(level=log_level)
+
+    # idapro must go first to initialize idalib.
+    try:
+        import idapro
+        import ida_auto
+        import ida_hexrays
+    except ImportError as exc:
+        raise RuntimeError(
+            "无法导入 idapro/idalib。请确认已安装 IDA Pro 9.x 的 Python 运行库，"
+            "并正确设置 IDADIR。"
+        ) from exc
+
+    if args.verbose:
+        idapro.enable_console_messages(True)
+    else:
+        idapro.enable_console_messages(False)
 
     # 重置可能在idapythonrc.py中初始化的日志级别
     # 该文件在导入idalib时会被执行
@@ -244,10 +272,15 @@ def main():
     # NOTE: https://github.com/modelcontextprotocol/python-sdk/issues/466
     fixup_tool_argument_descriptions(mcp)
 
-    # NOTE: npx @modelcontextprotocol/inspector for debugging
-    logger.info("MCP服务器在: http://%s:%d/sse 可用", mcp.settings.host, mcp.settings.port)
     try:
-        mcp.run(transport="sse")
+        if transport == "stdio":
+            logger.info("MCP服务器正在使用 stdio 传输")
+        elif transport == "sse":
+            logger.info("MCP服务器在: http://%s:%d/sse 可用", mcp.settings.host, mcp.settings.port)
+        else:
+            logger.info("MCP服务器在: http://%s:%d/mcp 可用", mcp.settings.host, mcp.settings.port)
+
+        mcp.run(transport=transport)
     except KeyboardInterrupt:
         pass
 

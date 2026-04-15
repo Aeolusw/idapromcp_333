@@ -147,7 +147,131 @@ python -m ida_pro_mcp.idalib_server <binary_path> --host 127.0.0.1 --port 8746
 - IDA 版本是否为 9.0+
 - `IDADIR` 是否指向有效 IDA 安装目录
 
-### 7.4 直连插件 JSON-RPC（调试）
+### 7.4 多 `.so` headless fleet（推荐给 AI 同时查看多个目标）
+
+如果你希望让 Codex / Claude Code 同时接入两个及以上的 headless IDA 分析目标，不要把多个文件塞进同一个 `idalib_server` 进程里，而是采用“一文件一实例”的 fleet 方式。
+
+如果你是想给另一个 AI 项目一个最短入口，直接看 [AI_MCP_QUICKSTART.md](D:/0Document/pgm/mcp/idapromcp_333/AI_MCP_QUICKSTART.md)。
+
+仓库内提供了两个脚本：
+
+- `tools/idalib_fleet.ps1`
+- `tools/idalib_probe.py`
+
+它们负责：
+
+- 按 manifest 批量启动多个 `idalib_server`
+- 为每个实例分配独立的 `IDAUSR`、PID、stdout/stderr 日志
+- 用 `initialize -> list_tools -> get_metadata` 做健康检查
+- 生成可直接粘贴到 Codex / Claude Code 的多实例 MCP 配置片段
+
+示例 manifest：`examples/idalib-fleet.sample.json`
+
+```json
+{
+  "python_exe": "D:\\Tools\\Python311\\python.exe",
+  "ida_dir": "E:\\CS\\Tools\\IDA Pro 9.1",
+  "transport": "streamable-http",
+  "instances": [
+    {
+      "alias": "15083758libsec2026_runtime.so",
+      "input_path": "D:\\0Document\\pgm\\Android\\ACE\\ACE2026-Pre\\question\\26-prelim\\output\\20260415083758\\libsec2026_runtime.so",
+      "port": 8746,
+      "enabled": true
+    },
+    {
+      "alias": "13165417libsec2026_runtime.so",
+      "input_path": "D:\\0Document\\pgm\\Android\\ACE\\ACE2026-Pre\\question\\26-prelim\\output\\20260413165154\\20260413165417\\libsec2026_runtime.so",
+      "port": 8747,
+      "enabled": true
+    }
+  ]
+}
+```
+
+运行示例：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\idalib_fleet.ps1 `
+  -Action start `
+  -ManifestPath .\examples\idalib-fleet.sample.json
+
+powershell -ExecutionPolicy Bypass -File .\tools\idalib_fleet.ps1 `
+  -Action status `
+  -ManifestPath .\examples\idalib-fleet.sample.json
+
+powershell -ExecutionPolicy Bypass -File .\tools\idalib_fleet.ps1 `
+  -Action config `
+  -ManifestPath .\examples\idalib-fleet.sample.json `
+  -Client all
+
+powershell -ExecutionPolicy Bypass -File .\tools\idalib_fleet.ps1 `
+  -Action stop `
+  -ManifestPath .\examples\idalib-fleet.sample.json
+```
+
+支持的 action：
+
+- `start`
+- `stop`
+- `restart`
+- `status`
+- `logs`
+- `config`
+
+fleet 的状态目录固定为：
+
+```text
+.idalib-fleet/<manifest-name>/
+├── state.json
+├── run/<safe-key>.pid
+├── logs/<safe-key>.stdout.log
+├── logs/<safe-key>.stderr.log
+└── idausr/<safe-key>/
+```
+
+#### alias 与 safe key 规则
+
+- manifest 中显式写了 `alias` 时，优先使用该值
+- 若未写 `alias`，脚本会从最近的 `yyyyMMddHHmmss` 目录提取 `ddHHmmss`，再拼接文件名
+- 若仍冲突，则自动追加数字后缀
+- 配置片段使用 `safe key`，规则是把 alias 中除字母数字、`-`、`_` 之外的字符全部替换为 `_`
+
+例如：
+
+- `15083758libsec2026_runtime.so` -> `15083758libsec2026_runtime_so`
+- `13165417libsec2026_runtime.so` -> `13165417libsec2026_runtime_so`
+
+`config` 动作会输出：
+
+- alias -> safe key -> port -> path 对照表
+- Codex 配置片段，例如：
+
+```toml
+[mcp_servers."ida-android-idalib-15083758libsec2026_runtime_so"]
+url = "http://127.0.0.1:8746/mcp"
+```
+
+- Claude Code 配置片段，例如：
+
+```json
+{
+  "ida-pro-mcp-idalib-15083758libsec2026_runtime_so": {
+    "type": "http",
+    "url": "http://127.0.0.1:8746/mcp"
+  }
+}
+```
+
+注意事项：
+
+- fleet 目前固定使用 `streamable-http`
+- 端口必须在 manifest 中显式指定，不会自动顺延
+- 若端口已被其他进程占用，`start` 会直接失败
+- 健康检查以 `get_metadata.module == 原始文件名` 为准
+- 该脚本只生成配置片段，不会自动改写你的 Codex / Claude Code 用户配置文件
+
+### 7.5 直连插件 JSON-RPC（调试）
 
 IDA 插件启动后，可对以下路径发起请求：
 
