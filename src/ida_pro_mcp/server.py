@@ -17,6 +17,17 @@ mcp = FastMCP(
 
 jsonrpc_request_id = 1
 
+def _resolve_ida_plugin_dir() -> str | None:
+    try:
+        import ida_idaapi
+
+        idadir = getattr(ida_idaapi, "idadir", None)
+        if callable(idadir):
+            return idadir("plugins")
+    except Exception:
+        pass
+    return None
+
 def get_config_file_path():
     """
     获取配置文件路径
@@ -33,8 +44,9 @@ def get_config_file_path():
     # 检查是否存在IDA插件目录下的配置文件
     try:
         import ida_idaapi
-        plugin_dir = ida_idaapi.idadir("plugins")
-        config_paths.append(os.path.join(plugin_dir, "mcp_config.json"))
+        plugin_dir = _resolve_ida_plugin_dir()
+        if plugin_dir:
+            config_paths.append(os.path.join(plugin_dir, "mcp_config.json"))
     except ImportError:
         pass  # 如果不在IDA环境中运行，忽略
     
@@ -482,10 +494,12 @@ def install_ida_plugin(*, uninstall: bool = False, quiet: bool = False):
     else:
         ida_plugin_folder = os.path.join(os.path.expanduser("~"), ".idapro", "plugins")
     plugin_destination = os.path.join(ida_plugin_folder, "mcp-plugin.py")
-    script_utils_destination = os.path.join(ida_plugin_folder, "script_utils.py")
+    legacy_script_utils_destination = os.path.join(ida_plugin_folder, "script_utils.py")
+    support_folder = os.path.join(ida_plugin_folder, "ida_pro_mcp")
+    script_utils_destination = os.path.join(support_folder, "script_utils.py")
     script_utils_source = os.path.join(SCRIPT_DIR, "script_utils.py")
     if uninstall:
-        for dst in [plugin_destination, script_utils_destination]:
+        for dst in [plugin_destination, legacy_script_utils_destination, script_utils_destination]:
             if os.path.exists(dst):
                 os.remove(dst)
                 if not quiet:
@@ -493,10 +507,13 @@ def install_ida_plugin(*, uninstall: bool = False, quiet: bool = False):
             else:
                 if not quiet:
                     print(f"跳过卸载 (未找到): {dst}")
+        if os.path.isdir(support_folder) and not os.listdir(support_folder):
+            os.rmdir(support_folder)
     else:
         # Create IDA plugins folder
         if not os.path.exists(ida_plugin_folder):
             os.makedirs(ida_plugin_folder)
+        os.makedirs(support_folder, exist_ok=True)
 
         # 安装 mcp-plugin.py
         realpath = os.path.realpath(plugin_destination)
@@ -514,6 +531,11 @@ def install_ida_plugin(*, uninstall: bool = False, quiet: bool = False):
                 print(f"安装 IDA Pro 插件 (需要重启 IDA)\n  插件: {plugin_destination}")
 
         # 安装 script_utils.py
+        if os.path.lexists(legacy_script_utils_destination):
+            os.remove(legacy_script_utils_destination)
+            if not quiet:
+                print(f"娓呯悊鏃х増 script_utils 妯″潡\n  璺緞: {legacy_script_utils_destination}")
+
         if os.path.exists(script_utils_source):
             if os.path.lexists(script_utils_destination):
                 os.remove(script_utils_destination)

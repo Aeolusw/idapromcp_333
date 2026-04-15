@@ -20,8 +20,13 @@ import time
 import tempfile
 import subprocess
 
+PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
+SUPPORT_DIR = os.path.join(PLUGIN_DIR, "ida_pro_mcp")
+
 # 导入脚本生成工具模块
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+for candidate in [SUPPORT_DIR, PLUGIN_DIR]:
+    if os.path.isdir(candidate) and candidate not in sys.path:
+        sys.path.insert(0, candidate)
 try:
     import script_utils
 except ImportError:
@@ -281,6 +286,18 @@ class JSONRPCRequestHandler(http.server.BaseHTTPRequestHandler):
         # 屏蔽 HTTP 日志输出
         pass
 
+def _resolve_plugin_config_dir() -> str:
+    try:
+        import ida_idaapi
+
+        idadir = getattr(ida_idaapi, "idadir", None)
+        if callable(idadir):
+            return idadir("plugins")
+    except Exception:
+        pass
+    return PLUGIN_DIR
+
+
 def get_config_file_path():
     """
     获取配置文件路径
@@ -290,8 +307,6 @@ def get_config_file_path():
     3. IDA插件目录下的mcp_config.json
     """
     # 尝试多个配置文件位置，按优先级返回第一个存在的
-    import ida_idaapi
-    import pathlib
     
     # 获取可能的配置文件路径列表
     config_paths = []
@@ -304,7 +319,7 @@ def get_config_file_path():
     config_paths.append(os.path.join(user_home, ".mcp", "mcp_config.json"))
     
     # 3. IDA插件目录
-    plugin_dir = ida_idaapi.idadir("plugins")
+    plugin_dir = _resolve_plugin_config_dir()
     config_paths.append(os.path.join(plugin_dir, "mcp_config.json"))
     
     # 返回第一个存在的配置文件

@@ -15,6 +15,17 @@ logger = logging.getLogger(__name__)
 
 mcp = FastMCP("github.com/namename333/idapromcp_333#idalib")
 
+def _resolve_ida_plugin_dir() -> str | None:
+    try:
+        import ida_idaapi
+
+        idadir = getattr(ida_idaapi, "idadir", None)
+        if callable(idadir):
+            return idadir("plugins")
+    except Exception:
+        pass
+    return None
+
 def get_config_file_path():
     """
     获取配置文件路径
@@ -31,8 +42,9 @@ def get_config_file_path():
     # 检查是否存在IDA插件目录下的配置文件
     try:
         import ida_idaapi
-        plugin_dir = ida_idaapi.idadir("plugins")
-        config_paths.append(os.path.join(plugin_dir, "mcp_config.json"))
+        plugin_dir = _resolve_ida_plugin_dir()
+        if plugin_dir:
+            config_paths.append(os.path.join(plugin_dir, "mcp_config.json"))
     except ImportError:
         pass  # 如果不在IDA环境中运行，忽略
     
@@ -248,6 +260,8 @@ def main():
     # 该文件在导入idalib时会被执行
     logging.getLogger().setLevel(log_level)
 
+    database_open = False
+
     if not args.input_path.exists():
         raise FileNotFoundError(f"输入文件不存在: {args.input_path}")
 
@@ -255,6 +269,8 @@ def main():
     logger.info("正在打开数据库: %s", args.input_path)
     if idapro.open_database(str(args.input_path), run_auto_analysis=True):
         raise RuntimeError("分析输入文件失败")
+
+    database_open = True
 
     logger.debug("idalib: waiting for analysis...")
     ida_auto.auto_wait()
@@ -283,6 +299,13 @@ def main():
         mcp.run(transport=transport)
     except KeyboardInterrupt:
         pass
+    finally:
+        if database_open:
+            try:
+                logger.info("closing database")
+                idapro.close_database()
+            except Exception:
+                logger.exception("failed to close database cleanly")
 
 if __name__ == "__main__":
     main()
