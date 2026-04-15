@@ -271,6 +271,104 @@ url = "http://127.0.0.1:8746/mcp"
 - 健康检查以 `get_metadata.module == 原始文件名` 为准
 - 该脚本只生成配置片段，不会自动改写你的 Codex / Claude Code 用户配置文件
 
+### 7.4.1 单文件加入常驻 Codex fleet
+
+如果你想把某个二进制文件加入“常驻 headless 分析服务”，并让 Codex 自动获得可连接的
+MCP `url` 配置，可以使用：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\add_idalib_to_codex.ps1 `
+  -InputPath "D:\path\to\binary.so.i64" `
+  -IdaDir "E:\CS\Tools\IDA Pro 9.1"
+```
+
+当前推荐只记两条 headless 路径：
+
+- 临时手开并保持终端不关：`tools/idah.ps1 <database.i64|database.idb>`
+- 常驻并交给 Codex / fleet 管理：`tools/add_idalib_to_codex.ps1 -InputPath <database.i64|database.idb>`，后续状态和启停都走 `tools/idalib_fleet.ps1`
+
+该脚本会：
+
+- 使用仓库内固定 manifest：`.idalib-fleet\codex-managed.json`
+- 以 `input_path` 去重；同一文件重复执行不会重复注册
+- 自动为该实例分配 `streamable-http` 端口，并写入或修复
+  `C:\Users\<user>\.codex\config.toml` 中对应的 `url` 条目
+- 默认执行 ensure：若实例未运行则启动，若状态为 `degraded` 则重启，若已健康则直接返回状态
+- 对 `.i64` / `.idb` / 已存在数据库文件，默认以进入 `healthy` 作为成功健康校验
+- 对数据库文件，脚本会给 fleet 更长的启动等待时间，以适配较慢的 headless 初始化
+- 对原始输入文件，会直接拒绝并提示先在 GUI IDA 中初始化并保存为 `.i64` / `.idb`
+- 返回机器可读 JSON，包含 `server_name`、`url`、`alias`、`safe_key`、`status`，并在需要时给出 `warnings`
+
+如果你只想登记但暂时不启动，可以加 `-RegisterOnly`。
+
+推荐输入优先级：
+
+- 首选：`.i64` / `.idb` / 已分析数据库文件
+- 不支持：原始 `.so` / `.dll` / 其他二进制，需先用 GUI IDA 生成数据库
+
+常驻实例的状态、日志和启停仍然通过 `tools/idalib_fleet.ps1` 完成。例如：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\idalib_fleet.ps1 `
+  -Action status `
+  -ManifestPath .\.idalib-fleet\codex-managed.json
+
+powershell -ExecutionPolicy Bypass -File .\tools\idalib_fleet.ps1 `
+  -Action logs `
+  -ManifestPath .\.idalib-fleet\codex-managed.json `
+  -Tail 60
+
+powershell -ExecutionPolicy Bypass -File .\tools\idalib_fleet.ps1 `
+  -Action restart `
+  -ManifestPath .\.idalib-fleet\codex-managed.json `
+  -Alias "your-alias"
+
+powershell -ExecutionPolicy Bypass -File .\tools\idalib_fleet.ps1 `
+  -Action stop `
+  -ManifestPath .\.idalib-fleet\codex-managed.json `
+  -Alias "your-alias"
+```
+
+`tools/add_idalib_to_codex.ps1` accepts only existing `.i64` / `.idb` database files. If you only have a raw target, open it in GUI IDA first and save a database before using the managed headless flow.
+
+手动删除 `~/.codex/config.toml` 里的条目不会删除 manifest 中的实例；当你下次再次指定同一文件时，
+脚本会把对应配置补回。
+
+如果你只是想快速手工拉起一个 headless MCP 服务给 AI 用，推荐使用槽位启动脚本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\idah.ps1 `
+  "D:\path\to\target.i64"
+```
+
+默认行为：
+
+- 第一个位置参数直接作为 `InputPath`
+- `Slot` 默认为 `1`，即端口 `8746`
+- `IdaDir` 默认为 `E:\CS\Tools\IDA Pro 9.1`
+
+需要第二个槽位时再显式指定：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\idah.ps1 `
+  "D:\path\to\target2.i64" `
+  -Slot 2
+```
+
+槽位映射固定为：
+
+- `Slot 1` -> `http://127.0.0.1:8746/mcp`
+- `Slot 2` -> `http://127.0.0.1:8747/mcp`
+
+如果把仓库里的 `tools` 目录加入 `PATH`，后续可以直接调用：
+
+```powershell
+idah.ps1 "D:\path\to\target.i64"
+idah.ps1 "D:\path\to\target2.i64" -Slot 2
+```
+
+`tools/idah.ps1` and `tools/start_headless_slot.ps1` accept only existing `.i64` / `.idb` database files. Raw targets must be initialized in GUI IDA first.
+
 ### 7.5 直连插件 JSON-RPC（调试）
 
 IDA 插件启动后，可对以下路径发起请求：

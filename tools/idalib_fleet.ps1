@@ -445,6 +445,15 @@ function Start-InstanceProcess {
     $previousIdaDir = $env:IDADIR
     $previousIdaUsr = $env:IDAUSR
     try {
+        $effectivePath = $env:PATH
+        if (-not $effectivePath -and $env:Path) {
+            $effectivePath = $env:Path
+        }
+        Remove-Item Env:Path -ErrorAction SilentlyContinue
+        if ($effectivePath) {
+            $env:PATH = $effectivePath
+        }
+
         $env:IDADIR = $ManifestModel.ida_dir
         $env:IDAUSR = $Instance.idausr_dir
         $process = Start-Process `

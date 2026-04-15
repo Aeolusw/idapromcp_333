@@ -221,6 +221,107 @@ powershell -ExecutionPolicy Bypass -File .\tools\start_idalib_server.ps1 `
 
 But for AI usage across multiple files, prefer `idalib_fleet.ps1`.
 
+Supported headless routes in practice:
+
+- manual terminal-held session: `tools/idah.ps1 <database.i64|database.idb>`
+- persistent Codex/fleet session: `tools/add_idalib_to_codex.ps1 -InputPath <database.i64|database.idb>`, then manage it with `tools/idalib_fleet.ps1`
+
+### 8.1 Persistent Codex Registration For One File
+
+If you want one binary to be managed as a long-lived headless instance and want Codex to have
+the correct MCP `url` automatically, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\add_idalib_to_codex.ps1 `
+  -InputPath "D:\\path\\to\\binary.so.i64" `
+  -IdaDir "E:\\CS\\Tools\\IDA Pro 9.1"
+```
+
+What it does:
+
+- uses a repo-local manifest at `.idalib-fleet\codex-managed.json`
+- de-duplicates by absolute `input_path`
+- allocates a `streamable-http` port for new instances
+- writes or repairs the matching Codex MCP `url` entry in `~/.codex/config.toml`
+- ensures the instance is healthy by calling the fleet helper's `status`, `start`, and `restart`
+- only accepts existing IDA database inputs: `.i64` or `.idb`
+- treats database-backed health as the supported steady-state path
+- returns a machine-readable JSON error for raw binaries and tells you to initialize them in GUI IDA first
+
+Use `-RegisterOnly` if you want to register the file without starting it yet.
+
+Preferred input order:
+
+- `.i64`
+- `.idb`
+
+If you only have a raw target such as `.so`, `.dll`, or another loader-supported file type:
+
+1. Open it in GUI IDA first.
+2. Let the loader and initial analysis finish.
+3. Save the database as `.i64` or `.idb`.
+4. Re-run `add_idalib_to_codex.ps1` with that database file.
+
+Use `tools/idalib_fleet.ps1` with the managed manifest when you want lifecycle commands:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\idalib_fleet.ps1 `
+  -Action status `
+  -ManifestPath .\.idalib-fleet\codex-managed.json
+
+powershell -ExecutionPolicy Bypass -File .\tools\idalib_fleet.ps1 `
+  -Action logs `
+  -ManifestPath .\.idalib-fleet\codex-managed.json `
+  -Tail 60
+
+powershell -ExecutionPolicy Bypass -File .\tools\idalib_fleet.ps1 `
+  -Action restart `
+  -ManifestPath .\.idalib-fleet\codex-managed.json `
+  -Alias "your-alias"
+
+powershell -ExecutionPolicy Bypass -File .\tools\idalib_fleet.ps1 `
+  -Action stop `
+  -ManifestPath .\.idalib-fleet\codex-managed.json `
+  -Alias "your-alias"
+```
+
+Use `tools/start_idalib_server.ps1` only when you explicitly want a one-off non-persistent
+single-target process.
+
+### 8.2 Quick Slot Startup For Manual Headless Use
+
+If you want the shortest command for "open one headless target, keep the terminal open, let AI
+use the MCP URL", use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\idah.ps1 `
+  "D:\\path\\to\\target.i64"
+```
+
+Defaults:
+
+- the first positional argument is `InputPath`
+- `Slot` defaults to `1`
+- `Slot 1` maps to `http://127.0.0.1:8746/mcp`
+- `Slot 2` maps to `http://127.0.0.1:8747/mcp`
+- `IdaDir` defaults to `E:\\CS\\Tools\\IDA Pro 9.1`
+- only `.i64` / `.idb` inputs are accepted by the slot helpers
+
+Use the second slot only when needed:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\idah.ps1 `
+  "D:\\path\\to\\target2.i64" `
+  -Slot 2
+```
+
+If `tools` is on your `PATH`, you can shorten that further to:
+
+```powershell
+idah.ps1 "D:\\path\\to\\target.i64"
+idah.ps1 "D:\\path\\to\\target2.i64" -Slot 2
+```
+
 ## 9. Common Failure Cases
 
 `Cannot load IDA library file idalib.dll`
@@ -247,15 +348,17 @@ No usable health result
 - inspect `stdout` / `stderr` logs in `.idalib-fleet/<manifest-name>/logs/`
 - verify `get_metadata` can run
 - verify the file path exists and is readable
+- verify you registered an existing `.i64` / `.idb`, not a raw input that still needs GUI initialization
 
 ## 10. Practical Rule for Another AI Agent
 
 If you are another AI system trying to use this repository, use this decision rule:
 
 1. If the user already has GUI IDA open and wants the live plugin, use `python -m ida_pro_mcp.server`.
-2. If the user wants headless analysis for one binary, use `tools/start_idalib_server.ps1`.
-3. If the user wants headless analysis for two or more binaries, use `tools/idalib_fleet.ps1`.
-4. When unsure, ask for:
+2. If the user wants a persistent headless target that Codex can reconnect to later, use `tools/add_idalib_to_codex.ps1`.
+3. If the user wants a one-off headless analysis for one binary without persistent registration, use `tools/start_idalib_server.ps1`.
+4. If the user wants direct control over a multi-target manifest, use `tools/idalib_fleet.ps1`.
+5. When unsure, ask for:
    - `python_exe`
    - `ida_dir`
    - target binary paths
